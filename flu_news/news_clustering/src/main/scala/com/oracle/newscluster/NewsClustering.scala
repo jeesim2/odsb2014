@@ -33,10 +33,26 @@ object NewsClustering {
   }
   
   def main(args : Array[String]) = {
+  	
+    var news_path = "hdfs://localhost:8020/user/irteam/flu_news"
+    var w2v_traingset_path = "file:///home/oracle/odsb2014/flu_news/data/linewise_text_8"
+    var result_path = "/user/irteam/odsb_result/"
+    
     val sc = new SparkContext(new SparkConf().setAppName("News Clustering"))
     
-    val news_rdd = sc.textFile("hdfs://localhost:8020/user/oracle/flu_news")
-
+    if(args.size > 0) {
+    	news_path = args(0)
+    }
+    
+    if(args.size > 1) {
+    	w2v_traingset_path = args(1)
+    }
+    
+    if(args.size > 2) {
+    	result_path = args(2)
+    }
+    
+    val news_rdd = sc.textFile(news_path)
     val news_json = news_rdd.map(record => {
       implicit val formats = DefaultFormats
       read[NewsArticle](record)
@@ -45,7 +61,7 @@ object NewsClustering {
     val news_titles = news_json.map(_.title.split(" ").toSeq)
     val news_title_words = news_titles.flatMap(x => x).map(x => Seq(x))
     
-    val w2v_input = sc.textFile("file:///home/oracle/odsb2014/flu_news/data/linewise_text_8").sample(false, 0.25,2).map(x => Seq(x))
+    val w2v_input = sc.textFile(w2v_traingset_path).sample(false, 0.25,2).map(x => Seq(x))
     val all_input = w2v_input ++ news_title_words
 
     val word2vec = new Word2Vec()
@@ -75,12 +91,9 @@ object NewsClustering {
 	sample_members.foreach{x => println(x._2.mkString(" "))}
 	println("-----------------------------")
     }
-
-    article_membership.map{x => x._1.toString+","+x._2.mkString(" ")}.saveAsTextFile("/user/oracle/flu_news_categorization")
-    cluster_topics.map{x => x._1+","+x._2.mkString(" ")}.saveAsTextFile("/user/oracle/flu_news_categories")
-
+    article_membership.map{x => x._1.toString+","+x._2.mkString(" ")}.saveAsTextFile(result_path+"/flu_news_categorization")
+    cluster_topics.map{x => x._1+","+x._2.mkString(" ")}.saveAsTextFile(result_path+"/flu_news_categories")
   }
-
 }
 
 
