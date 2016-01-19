@@ -34,7 +34,7 @@ object NewsClustering {
   
   def main(args : Array[String]) = {
   	
-    var news_path = "hdfs://localhost:8020/user/irteam/flu_news"
+    var news_path = "hdfs://dev-banda-hdfs-name001.ncl:8020/user/irteam/flu_news"
     var w2v_traingset_path = "file:///home/oracle/odsb2014/flu_news/data/linewise_text_8"
     var result_path = "/user/irteam/odsb_result/"
     
