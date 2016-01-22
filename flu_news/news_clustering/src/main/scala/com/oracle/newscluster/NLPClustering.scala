@@ -10,8 +10,6 @@ import org.apache.spark.mllib.clustering.KMeans
 import org.apache.spark.mllib.feature.Word2Vec
 import org.apache.spark.mllib.feature.Word2VecModel
 import org.apache.spark.mllib.linalg._
-import java.io._
-import java.util._
 
 import l2java.l2hanalang;
 import l2java.HANAtTLIST;
@@ -20,14 +18,15 @@ import l2java.l2javaConstants;
 
 case class NewsArticle(date : String, title : String, byline : String, fulltext : String)
 
+class L2wrapperV1{
 
-class DocToWords {
   System.loadLibrary("l2java")
   var lang = new l2hanalang
-  var dic_path = "../../share"
+  var dic_path = "/home1/irteam/apps/linguist2/share"
   var option = "+korea +english kma_useudic hana_no_contraction"
   var encoding = "utf8"
   lang.open(dic_path, option, encoding, encoding)
+  
   def analyze(text: String) : String = {
     var cnt = lang.execLang(text, 0)
     var result = ""
@@ -35,18 +34,21 @@ class DocToWords {
       var token = lang.getToken(i)
       var tokenInfo = lang.getTokenInfo(i)
       if(token.getMlist() != null){
-        result += l2hanalang.GetTypeStr(tokenInfo.getType())+" "+tokenInfo.getText()+"\n"
+        //result += l2hanalang.GetTypeStr(tokenInfo.getType())+" "+tokenInfo.getText()+"\n"
         for( j <- 0 until token.getMcnt() ) {
           var m = lang.getMorphInfo(i,j)
-           result += "\t"+l2hanalang.GetTypeStr(m.getType)+"\t"+ m.getText()+"\n"
-        }
-      }
-    }
+          if(l2hanalang.GetTypeStr(m.getType) == "NOUN"){
+            result += " "+ m.getText()
+          }
+        }  
+      } 
+    } 
     return result
-  }
+  } 
 }
 
-object NewsClustering {
+
+object NLPClustering {
   def sumArray (m: Array[Double], n: Array[Double]): Array[Double] = {
     for (i <- 0 until m.length) {m(i) += n(i)}
     return m
@@ -64,9 +66,14 @@ object NewsClustering {
       case e: Exception => return Vectors.zeros(100)
     }
   }
+
+  def titleNorm (l2w:L2wrapperV1, json: NewsArticle): NewsArticle = {
+    var newjson = new NewsArticle("",l2w.analyze(json.title),"",l2w.analyze(json.fulltext))
+    return newjson
+  }
   
   def main(args : Array[String]) = {
-  	
+        
     var news_path = "hdfs://dev-banda-hdfs-name001.ncl:8020/user/irteam/news_clustering"
     var w2v_traingset_path = "file:///home1/irteam/works/news_clustering/odsb2014-master/flu_news/data/linewise_text_8"
     var result_path = "/user/irteam/news_clustering_result/"
@@ -74,28 +81,34 @@ object NewsClustering {
     val sc = new SparkContext(new SparkConf().setAppName("News Clustering"))
     
     if(args.size > 0) {
-    	news_path = args(0)
+        news_path = args(0)
     }
     
     if(args.size > 1) {
-    	w2v_traingset_path = args(1)
+        w2v_traingset_path = args(1)
     }
     
     if(args.size > 2) {
-    	result_path = args(2)
+        result_path = args(2)
     }
     
-    val news_rdd = sc.textFile(news_path)
-    val news_json = news_rdd.map(record => {
+    val news_rdd = sc.textFile(news_path, 10)
+    val news_json_raw = news_rdd.map(record => {
       implicit val formats = DefaultFormats
       read[NewsArticle](record)
     })
 
+    val news_json = news_json_raw.mapPartitions { jsons =>
+      var l2w = new L2wrapperV1
+      jsons.map(titleNorm(l2w,_))
+    }
+     
     val news_titles = news_json.map(_.title.split(" ").toSeq)
     val news_title_words = news_titles.flatMap(x => x).map(x => Seq(x))
     
-    val w2v_input = sc.textFile(w2v_traingset_path).sample(false, 0.25,2).map(x => Seq(x))
-    val all_input = w2v_input ++ news_title_words
+    //val w2v_input = sc.textFile(w2v_traingset_path).sample(false, 0.25,2).map(x => Seq(x))
+    //val all_input = w2v_input ++ news_title_words
+    val all_input = news_title_words
 
     val word2vec = new Word2Vec()
     val model = word2vec.fit(all_input)
@@ -117,15 +130,14 @@ object NewsClustering {
     var sample_topic = cluster_topics.take(12)
     var sample_members = article_membership.filter(x => x._1 == 6).take(10)
     for (i <- 6 until 12) {
-	    println("Topic Group #"+i)
-	    println(sample_topic(i)._2.mkString(","))
-	    println("-----------------------------")
-	    sample_members = article_membership.filter(x => x._1 == i).take(10)
-	    sample_members.foreach{x => println(x._2.mkString(" "))}
-	    println("-----------------------------")
+            println("Topic Group #"+i)
+            println(sample_topic(i)._2.mkString(","))
+            println("-----------------------------")
+            sample_members = article_membership.filter(x => x._1 == i).take(10)
+            sample_members.foreach{x => println(x._2.mkString(" "))}
+            println("-----------------------------")
     }
     article_membership.map{x => x._1.toString+","+x._2.mkString(" ")}.saveAsTextFile(result_path+"/flu_news_categorization")
     cluster_topics.map{x => x._1+","+x._2.mkString(" ")}.saveAsTextFile(result_path+"/flu_news_categories")
   }
 }
-
